@@ -136,6 +136,11 @@ public:
     return *d_query.d_headers;
   }
 
+  [[nodiscard]] std::shared_ptr<TCPQuerySender> getQuerySender() const override
+  {
+    return std::dynamic_pointer_cast<TCPQuerySender>(d_connection.lock());
+  }
+
   void setHTTPResponse(uint16_t statusCode, PacketBuffer&& body, const std::string& contentType = "") override
   {
     d_query.d_statusCode = statusCode;
