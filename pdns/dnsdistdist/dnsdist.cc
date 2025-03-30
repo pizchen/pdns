@@ -505,7 +505,7 @@ bool processResponseAfterRules(PacketBuffer& response, DNSResponse& dnsResponse,
       zeroScope = false;
     }
     uint32_t cacheKey = dnsResponse.ids.cacheKey;
-    if (dnsResponse.ids.protocol == dnsdist::Protocol::DoH && !dnsResponse.ids.forwardedOverUDP) {
+    if (!dnsResponse.ids.packetCache->getUseBasicCacheKey() && dnsResponse.ids.protocol == dnsdist::Protocol::DoH && !dnsResponse.ids.forwardedOverUDP) {
       cacheKey = dnsResponse.ids.cacheKeyTCP;
       // disable zeroScope in that case, as we only have the "no-ECS" cache key for UDP
       zeroScope = false;
@@ -1474,7 +1474,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dnsQuestion, std::shared_
          For DoH, this lookup is done with the protocol set to TCP but we will retry over UDP below,
          therefore we do not record a miss for queries received over DoH and forwarded over TCP
          yet, as we will do a second-lookup */
-      if (dnsQuestion.ids.packetCache->get(dnsQuestion, dnsQuestion.getHeader()->id, dnsQuestion.ids.protocol == dnsdist::Protocol::DoH ? &dnsQuestion.ids.cacheKeyTCP : &dnsQuestion.ids.cacheKey, dnsQuestion.ids.subnet, dnsQuestion.ids.dnssecOK, dnsQuestion.ids.protocol != dnsdist::Protocol::DoH && willBeForwardedOverUDP, allowExpired, false, true, dnsQuestion.ids.protocol != dnsdist::Protocol::DoH || !willBeForwardedOverUDP)) {
+      if (dnsQuestion.ids.packetCache->get(dnsQuestion, dnsQuestion.getHeader()->id, (!dnsQuestion.ids.packetCache->getUseBasicCacheKey() && dnsQuestion.ids.protocol == dnsdist::Protocol::DoH) ? &dnsQuestion.ids.cacheKeyTCP : &dnsQuestion.ids.cacheKey, dnsQuestion.ids.subnet, dnsQuestion.ids.dnssecOK, dnsQuestion.ids.protocol != dnsdist::Protocol::DoH && willBeForwardedOverUDP, allowExpired, false, true, dnsQuestion.ids.protocol != dnsdist::Protocol::DoH || !willBeForwardedOverUDP)) {
 
         dnsdist::PacketMangling::editDNSHeaderFromPacket(dnsQuestion.getMutableData(), [flags = dnsQuestion.ids.origFlags](dnsheader& header) {
           restoreFlags(&header, flags);
@@ -1491,7 +1491,7 @@ ProcessQueryResult processQueryAfterRules(DNSQuestion& dnsQuestion, std::shared_
         ++dnsQuestion.ids.cs->responses;
         return ProcessQueryResult::SendAnswer;
       }
-      if (dnsQuestion.ids.protocol == dnsdist::Protocol::DoH && willBeForwardedOverUDP) {
+      if (!dnsQuestion.ids.packetCache->getUseBasicCacheKey() && dnsQuestion.ids.protocol == dnsdist::Protocol::DoH && willBeForwardedOverUDP) {
         /* do a second-lookup for responses received over UDP, but we do not want TC=1 answers */
         /* we need to be careful to keep the existing cache-key (TCP) */
         if (dnsQuestion.ids.packetCache->get(dnsQuestion, dnsQuestion.getHeader()->id, &dnsQuestion.ids.cacheKey, dnsQuestion.ids.subnet, dnsQuestion.ids.dnssecOK, true, allowExpired, false, false, true)) {

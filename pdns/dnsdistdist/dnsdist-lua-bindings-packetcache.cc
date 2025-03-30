@@ -45,6 +45,7 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
     bool deferrableInsertLock = true;
     bool ecsParsing = false;
     bool cookieHashing = false;
+    bool useBasicCacheKey = false;
     LuaArray<uint16_t> skipOptions;
     std::unordered_set<uint16_t> optionsToSkip{EDNSOptionCode::COOKIE};
 
@@ -60,6 +61,7 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
     getOptionalValue<size_t>(vars, "temporaryFailureTTL", tempFailTTL);
     getOptionalValue<bool>(vars, "cookieHashing", cookieHashing);
     getOptionalValue<size_t>(vars, "maximumEntrySize", maxEntrySize);
+    getOptionalValue<bool>(vars, "useBasicCacheKey", useBasicCacheKey);
 
     if (getOptionalValue<decltype(skipOptions)>(vars, "skipOptions", skipOptions) > 0) {
       for (const auto& option : skipOptions) {
@@ -91,6 +93,7 @@ void setupLuaBindingsPacketCache(LuaContext& luaCtx, bool client)
     if (maxEntrySize >= sizeof(dnsheader)) {
       res->setMaximumEntrySize(maxEntrySize);
     }
+    res->setUseBasicCacheKey(useBasicCacheKey);
 
     return res;
   });

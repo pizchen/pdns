@@ -77,8 +77,14 @@ bool DNSDistPacketCache::getClientSubnet(const PacketBuffer& packet, size_t qnam
 
 bool DNSDistPacketCache::cachedValueMatches(const CacheValue& cachedValue, uint16_t queryFlags, const DNSName& qname, uint16_t qtype, uint16_t qclass, bool receivedOverUDP, bool dnssecOK, const boost::optional<Netmask>& subnet) const
 {
-  if (cachedValue.queryFlags != queryFlags || cachedValue.dnssecOK != dnssecOK || cachedValue.receivedOverUDP != receivedOverUDP || cachedValue.qtype != qtype || cachedValue.qclass != qclass || cachedValue.qname != qname) {
-    return false;
+  if (d_useBasicCacheKey) {
+    if (cachedValue.queryFlags != queryFlags || cachedValue.qtype != qtype || cachedValue.qclass != qclass || cachedValue.qname != qname) {
+      return false;
+    }
+  } else {
+    if (cachedValue.queryFlags != queryFlags || cachedValue.dnssecOK != dnssecOK || cachedValue.receivedOverUDP != receivedOverUDP || cachedValue.qtype != qtype || cachedValue.qclass != qclass || cachedValue.qname != qname) {
+      return false;
+    }
   }
 
   if (d_parseECS && cachedValue.subnet != subnet) {
@@ -438,8 +444,38 @@ uint32_t DNSDistPacketCache::getMinTTL(const char* packet, uint16_t length, bool
   return getDNSPacketMinTTL(packet, length, seenNoDataSOA);
 }
 
+/* The basic cache key calculation method: include only header flags and the query section */
+uint32_t DNSDistPacketCache::getBasicKey(const PacketBuffer& packet)
+{
+  size_t pos;
+  const size_t packetSize = packet.size();
+  assert(packetSize >= sizeof(dnsheader));
+
+  // hash Flags (2 bytes): skip transaction ID (2 bytes)
+  uint32_t currentHash = burtle(&packet.at(2), 2, 0);
+
+  for (pos = sizeof(dnsheader); pos < packetSize; ) {
+    const unsigned char labelLen = static_cast<unsigned char>(packet.at(pos));
+    ++pos;
+    if (labelLen == 0) {
+      break;
+    }
+    pos = std::min(pos + labelLen, packetSize);
+  }
+  assert(packetSize >= pos + 2 + 2); // should include qtype and qclass
+
+  // hash QName part
+  currentHash = burtleCI(&packet.at(sizeof(dnsheader)), pos - sizeof(dnsheader), currentHash);
+  // hash qtype: 2 bytes and qclass: 2 bytes
+  return burtle(&packet.at(pos), 2+2, currentHash);
+}
+
 uint32_t DNSDistPacketCache::getKey(const DNSName::string_t& qname, size_t qnameWireLength, const PacketBuffer& packet, bool receivedOverUDP)
 {
+  if (d_useBasicCacheKey) {
+    return getBasicKey(packet);
+  }
+
   uint32_t result = 0;
   /* skip the query ID */
   if (packet.size() < sizeof(dnsheader)) {
