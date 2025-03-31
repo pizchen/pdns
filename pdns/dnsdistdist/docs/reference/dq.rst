@@ -432,6 +432,12 @@ DNSResponse object
 
     Get the selected backend :class:`Server` or nil
 
+  .. method:: DNSResponse.getStaleCacheHit() -> bool
+
+    .. versionadded:: 2.0.0
+
+    Get the indicator of whether the cache lookup hit a stale entry.
+
   .. method:: DNSResponse:editTTLs(func)
 
     The function ``func`` is invoked for every entry in the answer, authority and additional section.

@@ -175,6 +175,7 @@ struct InternalQueryState
   bool useZeroScope{false};
   bool forwardedOverUDP{false};
   bool selfGenerated{false};
+  bool staleCacheHit{false};
 };
 
 struct IDState
