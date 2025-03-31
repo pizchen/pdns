@@ -75,6 +75,28 @@ bool DNSDistPacketCache::getClientSubnet(const PacketBuffer& packet, size_t qnam
   return false;
 }
 
+size_t DNSDistPacketCache::getEDNSCookiePosition(const PacketBuffer& packet)
+{
+  const int offsetRRLen = 9;
+  uint16_t optStart = 0;
+  size_t optLen = 0;
+  bool last = false;
+  int res = locateEDNSOptRR(packet, &optStart, &optLen, &last);
+  if (res != 0) {
+    // no EDNS OPT RR
+    return 0;
+  }
+
+  size_t cookieOptionStartPosition = 0;
+  size_t cookieOptionSize = 0;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  res = getEDNSOption(reinterpret_cast<const char*>(&packet.at(optStart+offsetRRLen)), optLen-offsetRRLen, EDNSOptionCode::COOKIE, &cookieOptionStartPosition, &cookieOptionSize);
+  if (res == 0 && cookieOptionSize > (EDNS_OPTION_CODE_SIZE + EDNS_OPTION_LENGTH_SIZE)) {
+    return optStart + offsetRRLen + cookieOptionStartPosition + (EDNS_OPTION_CODE_SIZE + EDNS_OPTION_LENGTH_SIZE);
+  }
+  return 0;
+}
+
 bool DNSDistPacketCache::cachedValueMatches(const CacheValue& cachedValue, uint16_t queryFlags, const DNSName& qname, uint16_t qtype, uint16_t qclass, bool receivedOverUDP, bool dnssecOK, const boost::optional<Netmask>& subnet) const
 {
   if (d_useBasicCacheKey) {
@@ -189,6 +211,7 @@ void DNSDistPacketCache::insert(uint32_t key, const boost::optional<Netmask>& su
   newValue.dnssecOK = dnssecOK;
   newValue.value = std::string(response.begin(), response.end());
   newValue.subnet = subnet;
+  newValue.cookiePos = static_cast<uint16_t>(getEDNSCookiePosition(response));
 
   auto& shard = d_shards.at(shardIndex);
 
@@ -276,6 +299,14 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
       }
     }
 
+    const int ckLen = 8;
+    uint8_t queryClientCookie[ckLen];
+    uint16_t queryCookiePos = static_cast<uint16_t>(getEDNSCookiePosition(dnsQuestion.getData()));
+    if (queryCookiePos > 0) {
+        // save received client cookie before it gets overwriten
+        memcpy(&queryClientCookie[0], &dnsQuestion.getData().at(queryCookiePos), ckLen);
+    }
+
     response.resize(value.len);
     memcpy(&response.at(0), &queryId, sizeof(queryId));
     memcpy(&response.at(sizeof(queryId)), &value.value.at(sizeof(queryId)), sizeof(dnsheader) - sizeof(queryId));
@@ -293,7 +324,14 @@ bool DNSDistPacketCache::get(DNSQuestion& dnsQuestion, uint16_t queryId, uint32_
 
     memcpy(&response.at(sizeof(dnsheader)), dnsQName.c_str(), dnsQNameLen);
     if (value.len > (sizeof(dnsheader) + dnsQNameLen)) {
-      memcpy(&response.at(sizeof(dnsheader) + dnsQNameLen), &value.value.at(sizeof(dnsheader) + dnsQNameLen), value.len - (sizeof(dnsheader) + dnsQNameLen));
+      if (value.cookiePos > 0 && queryCookiePos > 0 && value.cookiePos > (sizeof(dnsheader) + dnsQNameLen) && value.len > (value.cookiePos+ckLen)) {
+        // Use received client cookie
+        memcpy(&response.at(sizeof(dnsheader) + dnsQNameLen), &value.value.at(sizeof(dnsheader) + dnsQNameLen), value.cookiePos - (sizeof(dnsheader) + dnsQNameLen));
+        memcpy(&response.at(value.cookiePos), &queryClientCookie[0], ckLen);
+        memcpy(&response.at(value.cookiePos+ckLen), &value.value.at(value.cookiePos+ckLen), value.len - (value.cookiePos+ckLen));
+      } else {
+        memcpy(&response.at(sizeof(dnsheader) + dnsQNameLen), &value.value.at(sizeof(dnsheader) + dnsQNameLen), value.len - (sizeof(dnsheader) + dnsQNameLen));
+      }
     }
 
     if (!stale) {

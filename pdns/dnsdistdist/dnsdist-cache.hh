@@ -94,6 +94,7 @@ public:
 
   static uint32_t getMinTTL(const char* packet, uint16_t length, bool* seenNoDataSOA);
   static bool getClientSubnet(const PacketBuffer& packet, size_t qnameWireLength, boost::optional<Netmask>& subnet);
+  static size_t getEDNSCookiePosition(const PacketBuffer& packet);
 
 private:
   struct CacheValue
@@ -108,6 +109,7 @@ private:
     time_t added{0};
     time_t validity{0};
     uint16_t len{0};
+    uint16_t cookiePos{0};
     bool receivedOverUDP{false};
     bool dnssecOK{false};
   };
